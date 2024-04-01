@@ -114,8 +114,8 @@ def main(original_path:str,sim_threshold:float=0.85,dataset_name = 'cmd',target_
         for i,block in enumerate(blocks):
             with open(f'out/{cache_name}/tmp_unique_{i}.json', 'w') as f:
                 new_list = []
-                for idx in block:
-                    new_list.append(data[idx])
+                for item in block:
+                    new_list.append(item)
                 json.dump(new_list, f, ensure_ascii=False, indent=4)
     else:
         print("Output directory already exists")
