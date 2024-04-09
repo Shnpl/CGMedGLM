@@ -2,3 +2,5 @@ out/
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[c]
+# Private data
+.env
