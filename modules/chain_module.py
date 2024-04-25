@@ -5,24 +5,47 @@ import json
 import pickle
 from tqdm import tqdm
 
+from operator import itemgetter
+
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableParallel, RunnablePassthrough
 from langchain_community.vectorstores.faiss import FAISS
 from langchain_core.output_parsers import StrOutputParser
 from langchain_community.embeddings import HuggingFaceBgeEmbeddings
-from operator import itemgetter
+from langchain.chains.api.base import APIChain
 
-class MainChain():
+
+class SimpleChain():
     def __init__(self) -> None:
         pass
         self.chatmodel = ChatOpenAI(model="gpt-4",
                             base_url=os.environ['LOCAL_BASE_URL'],
-                            api_key=os.environ['LOCAL_API_KEY'])
+                            api_key=os.environ['LOCAL_API_KEY'],temperature=1,max_tokens=512)
+        self.main_component = ChatPromptTemplate.from_messages([
+            ("system", "现在你是一个医生，请根据患者的问题给出建议："),
+            ("user", "{input}")
+        ])
+        self.main_chain = self.main_component |self.chatmodel|StrOutputParser()
+    def invoke(self,input_data):
+        print("===输入===")
+        print(input_data)
+        print("\n")
+        x = self.main_chain.invoke({"input": input_data})
+        print("===输出===")
+        print(x)
+        return x
+
+class MainChain():
+    def __init__(self,verbose = True) -> None:
+        self.verbose = verbose
+        self.chatmodel = ChatOpenAI(model="gpt-4",
+                            base_url=os.environ['LOCAL_BASE_URL'],
+                            api_key=os.environ['LOCAL_API_KEY'],temperature=1,max_tokens=512).bind(logprobs=True)
 
 
         self.summarize_component = ChatPromptTemplate.from_messages([
-            ("system", "你是一个医生，请从下列信息中提取出病人的病史。格式：性别：__。年龄：__。主诉：__。现病史：__。既往病史：__。若无信息，请填写无。"),
+            ("system", "你是一个医生，请从下列信息中提取出病人的病史。\n格式：\n性别：__。\n年龄：__。\n主诉：__。\n现病史：__。\n既往病史：__。\n若无信息，请填写无。"),
             ("user", "{input}")
         ])    
         # MSD Disease Info Stucture:
@@ -44,7 +67,7 @@ class MainChain():
         #           |--"不稳定型心绞痛再灌注治疗"
         #           |--"康复和出院后治疗"
         self.first_round_diagnosis_component = ChatPromptTemplate.from_messages([
-            ("system", "根据患者的疾病描述，给出一个初步的诊断以供资料检索。格式：逗号分隔的疾病名称。若无法诊断，请填写无。"),
+            ("system", "根据描述，给出一个初步的诊断以供资料检索。按重要性降序排列。格式：逗号分隔的疾病名称。若无法诊断，请填写无。"),
             ("user", "{input}")
         ])
 
@@ -62,8 +85,10 @@ class MainChain():
                     self.handbook_vs.add_texts([key+":"+str(tmp_handbook[key])],metadatas=[{"key":key}])
             with open("cache/msd_disease_info_summary_vs.pkl","wb") as f:
                 pickle.dump(self.handbook_vs,f)
-            
-        self.retriever = self.handbook_vs.as_retriever(search_type="similarity", search_kwargs={"k": 6})
+        
+        with open('datasets/medical_knowledgebase_content/handbooks_guideline/msd_disease_info.json','r') as f:
+            self.disease_info = json.load(f)
+        self.retriever = self.handbook_vs.as_retriever(search_type="similarity", search_kwargs={"k": 3})
 
 
         self.output_parser = StrOutputParser()
@@ -76,43 +101,63 @@ class MainChain():
 
         self.retrieval_chain = self.retriever
         self.second_round_diagnosis_component = ChatPromptTemplate.from_messages([
-            ("system", "根据以下资料和病情或者问题，给出一个诊断或者回答。"),
+            ("system", "你是一个医生，根据以下资料和病情或者问题，给出一个诊断或者回答。"),
             ("user", "资料：{input_1},病历描述：{input_2},问题：{input_3}")])
 
         self.second_round_diagnosis_chain = RunnableParallel({
             "input_1":itemgetter("relevant_docs"),
             "input_2":itemgetter("description"),
             "input_3":itemgetter("input")
-            })|self.second_round_diagnosis_component|self.chatmodel|self.output_parser
-    def invoke(self,input_data):
-        print("===输入===")
-        print(input_data)
-        print("\n")
+            })|self.second_round_diagnosis_component|self.chatmodel
+    def invoke(self,input_data,textonly = False):
+        if self.verbose:
+            print("===输入===")
+            print(input_data)
+            print("\n")
         x = self.summarize_chain.invoke({"input": input_data})
-        print("===病历描述===")
-        print(x)
-        print("\n")
+        if self.verbose:
+            print("===病历描述===")
+            print(x)
+            print("\n")
         x_1:str= self.first_round_chain.invoke(x)
         x_1 = x_1.split(",")
         docs = []
-        print("===初步诊断===")
-        print(x_1)
-        print("\n")
+        if self.verbose:
+            print("===初步诊断===")
+            print(x_1)
+            print("\n")
         for item in x_1:
             tmp = self.retrieval_chain.invoke(item)
-            docs.extend(tmp)
+            docs.append(tmp)
         relevant_docs = ""
-        print("===相关资料===")
-        for doc in docs:
-            print(f"{doc.page_content[:20]}...")
-            relevant_docs+= doc.page_content
-        print("\n")
+        if self.verbose:
+            print("===相关资料===")
+        docs = docs[:3]
+        for doc_list in docs:
+            for doc in doc_list:
+                try:
+                    if self.verbose:
+                        print(f"{doc.page_content[:20]}...")
+                    name = str(doc.page_content).split(":")[0]
+                    relevant_docs+= str(self.disease_info[name])
+                except:
+                    print(f'Failed to print doc content,original doc content is:{doc.page_content[:20]}...Skip it.')
+                    relevant_docs+= " "
+        relevant_docs = relevant_docs[:10000]
+        if self.verbose:
+            print(f"相关资料长度：{len(relevant_docs)}")
+            print("\n")
         x_2 = {
             "relevant_docs":relevant_docs,
             "description":x,
             "input":input_data
         }
         y = self.second_round_diagnosis_chain.invoke(x_2)
-        print("===Bot诊断===")
-        print(y)
-        return y
+        y_textonly = self.output_parser.invoke(y)
+        if self.verbose:
+            print("===Bot诊断===")
+            print(y_textonly)
+        if textonly:
+            return y_textonly
+        else:
+            return y

@@ -1,0 +1,9 @@
+
+    
+    messages.append({'role': 'assistant', 'content': '
+
+= '\n问答机器人的输出如下：\n'
+    user_input_for_judging += '{}\n\n'.format(sample['response'].strip())
+    user_input_for_judging += '现在请判断问答机器人的输出是否存在幻觉，只输出是或否即可。'
+
+    messages[-1]['content'] = user_input_for_judging
