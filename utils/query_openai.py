@@ -26,7 +26,7 @@ def query_openai(messages, use_proxy=True):
         "model": "gpt-4",
         "messages": messages,
         "max_tokens": 512,
-        "temperature":1,
+        "temperature":0,
         "top_p":1.0,
         "frequency_penalty":0.0,
         "presence_penalty":0.0,
@@ -38,4 +38,9 @@ def query_openai(messages, use_proxy=True):
     } if use_proxy else None
 
     response = requests.post(url, headers=headers, json=data, proxies=proxies)
-    return response.json()['choices'][0]['message']['content'].replace("\n","")
+    try:
+        ans = response.json()['choices'][0]['message']['content'].replace("\n","")
+    except:
+        print(response.json())
+        raise Exception("OpenAI API failed")
+    return ans

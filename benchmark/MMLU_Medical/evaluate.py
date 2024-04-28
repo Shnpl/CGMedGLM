@@ -52,7 +52,8 @@ def format_example(df, idx, include_answer=True):
     return prompt
 
 def gen_prompt(train_df, subject, k=-1):
-    prompt = "The following are multiple choice questions (with answers) about {}.\n\n".format(format_subject(subject))
+    # prompt = "The following are multiple choice questions (with answers) about {}.\n\n".format(format_subject(subject))
+    prompt = ""
     if k == -1:
         k = train_df.shape[0]
     for i in range(k):
@@ -79,31 +80,33 @@ def eval(args, subject, engine, dev_df, test_df):
         label = test_df.iloc[i, test_df.shape[1]-1]
 
         while True:
-            if use_chain:
-                c = chain.invoke(prompt,textonly=True)
-                out_ans = c[0]
-            else:
-            #try:
-                message=[
-                   {
-                       "role": "system",
-                       "content": "You are a helpful assistant."
-                    },
-                    {
-                        "role": "user",
-                        "content": prompt
-                    }
-                ]
-                c = openai.chat.completions.create(
-                    model='davinci',
-                    messages=message,
-                    max_tokens=10,
-                    logprobs=True,
-                    temperature=0,
-                )
-                
-                out_ans = c.choices[0].message.content
+            # if use_chain:
+            c = engine.invoke(prompt)
+            out_ans = c[0]
             break
+            # else:
+            # #try:
+            #     message=[
+            #        {
+            #            "role": "system",
+            #            "content": "You are a helpful assistant."
+            #         },
+            #         {
+            #             "role": "user",
+            #             "content": prompt
+            #         }
+            #     ]
+            #     c = engine.invoke(prompt)
+            #     c = openai.chat.completions.create(
+            #         model='davinci',
+            #         messages=message,
+            #         max_tokens=10,
+            #         logprobs=True,
+            #         temperature=0,
+            #     )
+                
+            #     out_ans = c.choices[0].message.content
+            
             # except:
             #     print("pausing")
             #     time.sleep(1)
@@ -141,46 +144,42 @@ def eval(args, subject, engine, dev_df, test_df):
 
     return cors, acc, all_probs
 
-def main(args):
-    engines = args.engine
+def main(args,engine):
     subjects = sorted([f.split("_test.csv")[0] for f in os.listdir(os.path.join(args.data_dir, "test")) if "_test.csv" in f])
 
     if not os.path.exists(args.save_dir):
         os.mkdir(args.save_dir)
-    for engine in engines:
-        if not os.path.exists(os.path.join(args.save_dir, "results_{}".format(engine))):
-            os.mkdir(os.path.join(args.save_dir, "results_{}".format(engine)))
+    engine_name = engine.__class__.__name__
+    if not os.path.exists(os.path.join(args.save_dir, "results_{}".format(engine_name))):
+        os.mkdir(os.path.join(args.save_dir, "results_{}".format(engine_name)))
 
     print(subjects)
     print(args)
 
-    for engine in engines:
-        print(engine)
-        all_cors = []
+    all_cors = []
 
-        for subject in subjects:
-            dev_df = pd.read_csv(os.path.join(args.data_dir, "dev", subject + "_dev.csv"), header=None)[:args.ntrain]
-            test_df = pd.read_csv(os.path.join(args.data_dir, "test", subject + "_test.csv"), header=None)
+    for subject in subjects:
+        dev_df = pd.read_csv(os.path.join(args.data_dir, "dev", subject + "_dev.csv"), header=None)[:args.ntrain]
+        test_df = pd.read_csv(os.path.join(args.data_dir, "test", subject + "_test.csv"), header=None)
 
-            cors, acc, probs = eval(args, subject, engine, dev_df, test_df)
-            all_cors.append(cors)
+        cors, acc, probs = eval(args, subject, engine, dev_df, test_df)
+        all_cors.append(cors)
 
-            test_df["{}_correct".format(engine)] = cors
-            for j in range(probs.shape[1]):
-                choice = choices[j]
-                test_df["{}_choice{}_probs".format(engine, choice)] = probs[:, j]
-            test_df.to_csv(os.path.join(args.save_dir, "results_{}".format(engine), "{}.csv".format(subject)), index=None)
+        test_df["{}_correct".format(engine)] = cors
+        for j in range(probs.shape[1]):
+            choice = choices[j]
+            test_df["{}_choice{}_probs".format(engine, choice)] = probs[:, j]
+        test_df.to_csv(os.path.join(args.save_dir, "results_{}".format(engine_name), "{}.csv".format(subject)), index=None)
+        break
 
-        weighted_acc = np.mean(np.concatenate(all_cors))
-        print("Average accuracy: {:.3f}".format(weighted_acc))
+    weighted_acc = np.mean(np.concatenate(all_cors))
+    print("Average accuracy: {:.3f}".format(weighted_acc))
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--ntrain", "-k", type=int, default=5)
     parser.add_argument("--data_dir", "-d", type=str, default="data")
     parser.add_argument("--save_dir", "-s", type=str, default="results")
-    parser.add_argument("--engine", "-e", choices=["davinci"],
-                        default=["davinci"], nargs="+")
     args = parser.parse_args()
     main(args)
 

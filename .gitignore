@@ -4,3 +4,4 @@ __pycache__/
 *.py[c]
 # Private data
 .env
+output.txt

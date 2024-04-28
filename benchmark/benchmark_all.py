@@ -1,6 +1,11 @@
+import sys
+sys.path.append('.')
+from modules.chain_module import MainChain,SimpleChain
 #import debugpy;debugpy.connect(5678)
 from argparse import Namespace
 from MMLU_Medical.evaluate import main as mmlu_medical_main
+
+
 SIMPLE_MCQA_TASKS=[
     'MedQA',
     'MedMCQA',
@@ -28,6 +33,5 @@ if __name__ == "__main__":
     mmlu_args.ntrain = 0
     mmlu_args.data_dir = "benchmark/MMLU_Medical/data"
     mmlu_args.save_dir = "benchmark/results/MMLU_Medical"
-    mmlu_args.engine = ["davinci"]
-    
-    mmlu_medical_main(mmlu_args)
+    engine = MainChain()
+    #mmlu_medical_main(mmlu_args,engine)
